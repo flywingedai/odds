@@ -3,16 +3,16 @@ package odds_test
 import (
 	"fmt"
 	"math/big"
-	"runtime"
 	"testing"
 
 	"github.com/flywingedai/odds"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestOptions(t *testing.T) {
-	// x := 3
-	// y := 4
-	// z := 5
+	x := 3
+	y := 4
+	z := 5
 
 	testOdds := odds.NewOptions(test_HashFunction1).Odds()
 	// assert.Equal(t, 6, testOdds.HashFunction(&x))
@@ -26,39 +26,49 @@ func TestOptions(t *testing.T) {
 		WithConvolveInPlace(test_ConvolveInPlaceFunction).
 		WithDisplay(test_DisplayFunction).Odds()
 
-	// assert.Equal(t, 3, testOdds.HashFunction(&x))
+	smallTests := testOdds.Copy()
+	assert.Equal(t, 3, smallTests.HashFunction(&x))
 
-	// assert.Equal(t, 5, *(testOdds.CopyFunction(&z)))
+	assert.Equal(t, 5, *(smallTests.CopyFunction(&z)))
 
-	// assert.Equal(t, 7, *(testOdds.CombineFunction(&x, &y)))
+	assert.Equal(t, 7, *(smallTests.CombineFunction(&x, &y)))
 
-	// testOdds.CombineInPlaceFunction(&x, &z)
-	// assert.Equal(t, 8, x)
+	smallTests.CombineInPlaceFunction(&x, &z)
+	assert.Equal(t, 8, x)
 
-	// entries := testOdds.ConvolveFunction(testOdds, testOdds.NewEntry(&y, big.NewInt(1)), testOdds.NewEntry(&z, big.NewInt(1)))
-	// assert.Equal(t, 20, *entries[0].Data)
+	entries := smallTests.ConvolveFunction(smallTests, smallTests.NewEntry(&y, big.NewInt(1)), smallTests.NewEntry(&z, big.NewInt(1)))
+	assert.Equal(t, 20, *entries[0].Data)
 
-	// testOdds.ConvolveInPlaceFunction(testOdds, testOdds.NewEntry(&x, big.NewInt(1)), testOdds.NewEntry(&y, big.NewInt(1)))
-	// assert.Equal(t, 32, x)
+	smallTests.ConvolveInPlaceFunction(smallTests, smallTests.NewEntry(&x, big.NewInt(1)), smallTests.NewEntry(&y, big.NewInt(1)))
+	assert.Equal(t, 32, x)
 
-	// assert.Equal(t, "32", testOdds.DisplayFunction(&x))
+	assert.Equal(t, "32", smallTests.DisplayFunction(&x))
 
-	for i := 1; i <= 2_000; i++ {
+	for i := 1; i <= 5; i++ {
 		x := i
 		testOdds.Add(&x, big.NewInt(int64(i)))
 	}
 
-	// testOdds.Extend_Parallel(func(e *odds.Entry[*int, int]) *int {
-	// 	newValue := 0
-	// 	for i := 0; i < 10_000; i++ {
-	// 		newValue += *e.Data
-	// 	}
-	// 	return &newValue
-	// }, 12)
+	extend := testOdds.Copy()
+	extend.Extend(func(e *odds.Entry[*int, int]) *int {
+		newValue := 0
+		for i := 0; i < 10_000; i++ {
+			newValue += *e.Data
+		}
+		return &newValue
+	})
 
-	runtime.GOMAXPROCS(60)
+	extendParallel := testOdds.Copy()
+	extendParallel.Extend_Parallel(func(e *odds.Entry[*int, int]) *int {
+		newValue := 0
+		for i := 0; i < 10_000; i++ {
+			newValue += *e.Data
+		}
+		return &newValue
+	}, 4)
 
-	testOdds.ExtendOdds_Parallel(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
+	extendOdds := testOdds.Copy()
+	extendOdds.ExtendOdds(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
 		newOdds := o.AsReference()
 
 		for i := 1; i <= *e.Data+3; i++ {
@@ -67,33 +77,31 @@ func TestOptions(t *testing.T) {
 		}
 
 		return newOdds
-	}, 60, odds.Modify_Default)
+	}, odds.Modify_Combine)
 
-	// .42 seconds
-	// 64679 15380503786035895166827898308685180359996955436116372622880945780240311049137331822092315381576728395223808
-	// 81817768248492198522608089418484814834832047021785344127742133953603490910800108573042030850503878217794670308392000000
+	extendOdds = testOdds.Copy()
+	extendOdds.ExtendOdds(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
+		newOdds := o.AsReference()
 
-	// .30 seconds
-	// 64679 15380503786035895166827898308685180359996955436116372622880945780240311049137331822092315381576728395223808
-	// 81817768248492198522608089418484814834832047021785344127742133953603490910800108573042030850503878217794670308392000000
+		for i := 1; i <= *e.Data+3; i++ {
+			newData := i * *e.Data
+			newOdds.Add(&newData, big.NewInt(1))
+		}
 
-	// testOdds.ExtendOdds(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
-	// 	newOdds := o.AsReference()
+		return newOdds
+	}, odds.Modify_Default)
 
-	// 	for i := 1; i <= *e.Data+3; i++ {
-	// 		newData := i * *e.Data
-	// 		newOdds.Add(&newData, big.NewInt(1))
-	// 	}
+	extendOddsParallel := testOdds.Copy()
+	extendOddsParallel.ExtendOdds_Parallel(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
+		newOdds := o.AsReference()
 
-	// 	return newOdds
-	// }, odds.Modify_Default)
+		for i := 1; i <= *e.Data+3; i++ {
+			newData := i * *e.Data
+			newOdds.Add(&newData, big.NewInt(1))
+		}
 
-	// 3.3
-
-	fmt.Println(len(testOdds.Map), testOdds.Total)
-	// for _, entry := range testOdds.EntriesByWeight() {
-	// 	fmt.Println(entry)
-	// }
+		return newOdds
+	}, 4, odds.Modify_CombineInPlace)
 
 }
 

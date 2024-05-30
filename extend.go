@@ -40,18 +40,19 @@ func (o *Odds[D, H]) ExtendOdds(
 
 	o.Map = map[H]*Entry[D, H]{}
 	o.Total.Set(big.NewInt(0))
+
+	mergeFunction := o.Merge
+	if modifyFlags&Modify_Combine > 0 {
+		mergeFunction = o.Merge_Combine
+	} else if modifyFlags&Modify_CombineInPlace > 0 {
+		mergeFunction = o.Merge_CombineInPlace
+	}
+
 	for i, extendedOdds := range oddsArray {
 		scaleFactor := new(big.Int).Mul(multipledExtendedWeight, entryArray[i].Weight)
 		scaleFactor.Div(scaleFactor, extendedOdds.Total)
 		extendedOdds.Scale(scaleFactor)
-
-		if modifyFlags&Modify_Combine > 0 {
-			o.Merge_Combine(extendedOdds)
-		} else if modifyFlags&Modify_CombineInPlace > 0 {
-			o.Merge_CombineInPlace(extendedOdds)
-		} else {
-			o.Merge(extendedOdds)
-		}
+		mergeFunction(extendedOdds)
 	}
 
 	return o.Reduce()
@@ -111,40 +112,40 @@ func (o *Odds[D, H]) ExtendOdds_Parallel(
 	modifyFlags ModifyFlag,
 ) *Odds[D, H] {
 
-	entryQueue := make(chan *Entry[D, H], len(o.Map))
-	newOddsWeights := make(chan *big.Int, workers)
-	totalWeights := make(chan *big.Int, workers)
+	type workerDataStruct struct {
+		subTotal    *big.Int
+		entryWeight *big.Int
+		scaleFactor chan *big.Int
+	}
+
+	workerDataChan := make(chan *workerDataStruct, workers)
 	completedOdds := make(chan *Odds[D, H], workers)
 
 	// Define the main worker function that processes each entry
-	workerFunction := func() {
+	entries := o.Entries()
+	workerFunction := func(startIndex, endIndex int) {
 
-		// IMPLEMENTATION 1
-
+		/*
+			Reimplementation of o.ExtendOdds with a bunch of extra parameters
+			which are useful for parallelization. TODO: Update Odds.ExtendOdds
+			to be easier to use here
+		*/
 		multipledExtendedWeight := big.NewInt(1)
 		oddsArray := []*Odds[D, H]{}
-		entryArray := []*Entry[D, H]{}
 
 		totalEntryWeight := big.NewInt(0)
 		newOdds := NewOddsFromReference(o)
 
-		for {
-			entry, isOpen := <-entryQueue
-			if isOpen {
-				extendedOdds := extendFunction(newOdds, entry).Reduce()
-				oddsArray = append(oddsArray, extendedOdds)
-				entryArray = append(entryArray, entry)
-				multipledExtendedWeight.Mul(multipledExtendedWeight, extendedOdds.Total)
-				totalEntryWeight.Add(totalEntryWeight, entry.Weight)
-			} else {
-				break
-			}
+		for i := startIndex; i < endIndex; i++ {
+			entry := entries[i]
+			extendedOdds := extendFunction(newOdds, entry).Reduce()
+			oddsArray = append(oddsArray, extendedOdds)
+			multipledExtendedWeight.Mul(multipledExtendedWeight, extendedOdds.Total)
+			totalEntryWeight.Add(totalEntryWeight, entry.Weight)
 		}
 
-		recievedData := len(entryArray) > 0
-
 		for i, extendedOdds := range oddsArray {
-			scaleFactor := new(big.Int).Mul(multipledExtendedWeight, entryArray[i].Weight)
+			scaleFactor := new(big.Int).Mul(multipledExtendedWeight, entries[startIndex+i].Weight)
 			scaleFactor.Div(scaleFactor, extendedOdds.Total)
 			extendedOdds.Scale(scaleFactor)
 
@@ -157,77 +158,82 @@ func (o *Odds[D, H]) ExtendOdds_Parallel(
 			}
 		}
 
-		newOdds.Reduce()
+		newOdds.Reduce().UpdateHashes()
 
 		// Inform the main process about the size of the resulting odds
-		if recievedData {
-			newOddsWeights <- newOdds.Total
-		} else {
-			newOddsWeights <- nil
-		}
+		data := &workerDataStruct{newOdds.Total, totalEntryWeight, make(chan *big.Int)}
+		workerDataChan <- data
 
 		/*
 			Once the worker is done, we want to send back on the completed
 			channel the computed new odds, correctly scaled based on the total
 			computed weight
 		*/
-		totalWeight := <-totalWeights
-
-		if recievedData {
-			scaleFactor := new(big.Int).Div(totalEntryWeight.Mul(totalEntryWeight, totalWeight), newOdds.Total)
-			completedOdds <- newOdds.Scale(scaleFactor).UpdateHashes()
-		} else {
-			completedOdds <- nil
-		}
+		completedOdds <- newOdds.Scale(<-data.scaleFactor)
 
 	}
 
-	// Parallel start all the workers
+	processPerWorker := 1 + (len(entries) / workers)
+	currentStartIndex := 0
 	for i := 0; i < workers; i++ {
-		go workerFunction()
+		if currentStartIndex == len(entries) {
+			workers = i
+			break
+		}
+		endIndex := currentStartIndex + processPerWorker
+		if endIndex > len(entries) {
+			endIndex = len(entries)
+		}
+		go workerFunction(currentStartIndex, endIndex)
+		currentStartIndex = endIndex
 	}
-
-	/*
-		Send the workers all the entries to process and close the entryQueue
-		once all entries have been sent.
-	*/
-	for _, entry := range o.Entries() {
-		entryQueue <- entry
-	}
-	close(entryQueue)
 
 	/*
 		Determine the total weight of the resulting maps and send the value to
 		each individual worker.
 	*/
 	totalWeight := big.NewInt(1)
+	workerData := []*workerDataStruct{}
 	for i := 0; i < workers; i++ {
-		subTotal := <-newOddsWeights
-		if subTotal == nil {
-			continue
-		}
-		totalWeight.Mul(totalWeight, subTotal)
+		data := <-workerDataChan
+		workerData = append(workerData, data)
+		totalWeight.Mul(totalWeight, data.subTotal)
 	}
-	for i := 0; i < workers; i++ {
-		totalWeights <- totalWeight
+
+	// Calculate all the scale factors
+	scaleFactors := []*big.Int{}
+	var gcd *big.Int
+	for _, d := range workerData {
+		scaleFactor := new(big.Int).Div(new(big.Int).Mul(d.entryWeight, totalWeight), d.subTotal)
+
+		if gcd == nil {
+			gcd = new(big.Int).Set(scaleFactor)
+		} else {
+			gcd.GCD(nil, nil, gcd, scaleFactor)
+		}
+
+		scaleFactors = append(scaleFactors, scaleFactor)
+	}
+
+	for i, d := range workerData {
+		adjustedFactor := new(big.Int).Quo(scaleFactors[i], gcd)
+		d.scaleFactor <- adjustedFactor
 	}
 
 	// Fetch the completed odds and combine into o
 	o.Map = map[H]*Entry[D, H]{}
 	o.Total.Set(big.NewInt(0))
+
+	mergeFunction := o.Merge
+	if modifyFlags&Modify_Combine > 0 {
+		mergeFunction = o.Merge_Combine
+	} else if modifyFlags&Modify_CombineInPlace > 0 {
+		mergeFunction = o.Merge_CombineInPlace
+	}
+
 	for i := 0; i < workers; i++ {
 		completed := <-completedOdds
-		if completed == nil {
-			continue
-		}
-
-		if modifyFlags&Modify_Combine > 0 {
-			o.Merge_Combine(completed)
-		} else if modifyFlags&Modify_CombineInPlace > 0 {
-			o.Merge_CombineInPlace(completed)
-		} else {
-			o.Merge(completed)
-		}
+		mergeFunction(completed)
 	}
 
 	return o.Reduce_Parallel(workers)

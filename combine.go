@@ -1,6 +1,8 @@
 package odds
 
-import "math/big"
+import (
+	"math/big"
+)
 
 ///////////
 // MERGE //
@@ -18,8 +20,14 @@ func (o *Odds[D, H]) Merge(objects ...*Odds[D, H]) *Odds[D, H] {
 		}
 
 		for _, entry := range obj.Map {
-			o.Add(entry.Data, entry.Weight)
+			existingEntry := o.Map[entry.Hash]
+			if existingEntry != nil {
+				existingEntry.Weight.Add(existingEntry.Weight, entry.Weight)
+			} else {
+				o.Map[entry.Hash] = entry
+			}
 		}
+		o.Total.Add(o.Total, obj.Total)
 	}
 
 	return o
@@ -37,8 +45,15 @@ func (o *Odds[D, H]) Merge_Combine(objects ...*Odds[D, H]) *Odds[D, H] {
 		}
 
 		for _, entry := range obj.Map {
-			o.Add_Combine(entry.Data, entry.Weight)
+			existingEntry := o.Map[entry.Hash]
+			if existingEntry != nil {
+				existingEntry.Weight.Add(existingEntry.Weight, entry.Weight)
+				existingEntry.Data = o.CombineFunction(existingEntry.Data, entry.Data)
+			} else {
+				o.Map[entry.Hash] = entry
+			}
 		}
+		o.Total.Add(o.Total, obj.Total)
 	}
 
 	return o
@@ -56,8 +71,15 @@ func (o *Odds[D, H]) Merge_CombineInPlace(objects ...*Odds[D, H]) *Odds[D, H] {
 		}
 
 		for _, entry := range obj.Map {
-			o.Add_CombineInPlace(entry.Data, entry.Weight)
+			existingEntry := o.Map[entry.Hash]
+			if existingEntry != nil {
+				existingEntry.Weight.Add(existingEntry.Weight, entry.Weight)
+				o.CombineInPlaceFunction(existingEntry.Data, entry.Data)
+			} else {
+				o.Map[entry.Hash] = entry
+			}
 		}
+		o.Total.Add(o.Total, obj.Total)
 	}
 
 	return o

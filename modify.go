@@ -185,7 +185,6 @@ func (o *Odds[D, H]) RemoveSubset(subset *Odds[D, H]) *big.Int {
 	}
 
 	// This is how we track how much weight in "o" has been removed. It is
-	// faster than tracking every time things are removed.
 	return originalTotal.Sub(originalTotal, o.Total)
 }
 
@@ -344,22 +343,19 @@ func (o *Odds[D, H]) Reduce_Parallel(workers int) *Odds[D, H] {
 	totalGCD := make(chan *big.Int)
 	doneChannel := make(chan bool)
 
-	gcdWorker := func() {
+	entries := o.Entries()
+	gcdWorker := func(startIndex, endIndex int) {
 
 		var gcd *big.Int
 		weights := []*big.Int{}
 
-		for {
-			weight, isOpen := <-weightsChannel
-			if isOpen {
-				weights = append(weights, weight)
-				if gcd == nil {
-					gcd = new(big.Int).Set(weight)
-				} else {
-					gcd.GCD(nil, nil, gcd, weight)
-				}
+		for i := startIndex; i < endIndex; i++ {
+			weight := entries[i].Weight
+			weights = append(weights, weight)
+			if gcd == nil {
+				gcd = new(big.Int).Set(weight)
 			} else {
-				break
+				gcd.GCD(nil, nil, gcd, weight)
 			}
 		}
 
@@ -374,8 +370,20 @@ func (o *Odds[D, H]) Reduce_Parallel(workers int) *Odds[D, H] {
 
 	}
 
+	processPerWorker := 1 + (len(entries) / workers)
+	currentStartIndex := 0
 	for i := 0; i < workers; i++ {
-		go gcdWorker()
+		if currentStartIndex == len(entries) {
+			workers = i
+			break
+		}
+
+		endIndex := currentStartIndex + processPerWorker
+		if endIndex > len(entries) {
+			endIndex = len(entries)
+		}
+		go gcdWorker(currentStartIndex, endIndex)
+		currentStartIndex = endIndex
 	}
 
 	for _, entry := range o.Map {
