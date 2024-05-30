@@ -204,7 +204,7 @@ func (o *Odds[D, H]) ExtendOdds_Parallel(
 	scaleFactors := []*big.Int{}
 	var gcd *big.Int
 	for _, d := range workerData {
-		scaleFactor := new(big.Int).Div(new(big.Int).Mul(d.entryWeight, totalWeight), d.subTotal)
+		scaleFactor := new(big.Int).Quo(new(big.Int).Mul(d.entryWeight, totalWeight), d.subTotal)
 
 		if gcd == nil {
 			gcd = new(big.Int).Set(scaleFactor)
