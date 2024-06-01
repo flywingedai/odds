@@ -77,7 +77,7 @@ func TestOptions(t *testing.T) {
 		}
 
 		return newOdds
-	}, odds.Modify_Combine)
+	}, odds.Add_Combine)
 
 	extendOdds = testOdds.Copy()
 	extendOdds.ExtendOdds(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
@@ -89,7 +89,7 @@ func TestOptions(t *testing.T) {
 		}
 
 		return newOdds
-	}, odds.Modify_Default)
+	}, odds.Add_Default)
 
 	extendOddsParallel := testOdds.Copy()
 	extendOddsParallel.ExtendOdds_Parallel(func(o *odds.Odds[*int, int], e *odds.Entry[*int, int]) *odds.Odds[*int, int] {
@@ -101,7 +101,7 @@ func TestOptions(t *testing.T) {
 		}
 
 		return newOdds
-	}, 4, odds.Modify_CombineInPlace)
+	}, 4, odds.Add_CombineInPlace)
 
 }
 

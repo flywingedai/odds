@@ -24,7 +24,7 @@ the provided extendFunction.
 */
 func (o *Odds[D, H]) ExtendOdds(
 	extendFunction func(*Odds[D, H], *Entry[D, H]) *Odds[D, H],
-	modifyFlags ModifyFlag,
+	addFlags OddsFlags,
 ) *Odds[D, H] {
 
 	multipledExtendedWeight := big.NewInt(1)
@@ -42,9 +42,9 @@ func (o *Odds[D, H]) ExtendOdds(
 	o.Total.Set(big.NewInt(0))
 
 	mergeFunction := o.Merge
-	if modifyFlags&Modify_Combine > 0 {
+	if addFlags&Add_Combine > 0 {
 		mergeFunction = o.Merge_Combine
-	} else if modifyFlags&Modify_CombineInPlace > 0 {
+	} else if addFlags&Add_CombineInPlace > 0 {
 		mergeFunction = o.Merge_CombineInPlace
 	}
 
@@ -109,7 +109,7 @@ mergeType = ["", "Combine", "In Place"]
 func (o *Odds[D, H]) ExtendOdds_Parallel(
 	extendFunction func(*Odds[D, H], *Entry[D, H]) *Odds[D, H],
 	workers int,
-	modifyFlags ModifyFlag,
+	addFlags OddsFlags,
 ) *Odds[D, H] {
 
 	type workerDataStruct struct {
@@ -149,9 +149,9 @@ func (o *Odds[D, H]) ExtendOdds_Parallel(
 			scaleFactor.Div(scaleFactor, extendedOdds.Total)
 			extendedOdds.Scale(scaleFactor)
 
-			if modifyFlags&Modify_Combine > 0 {
+			if addFlags&Add_Combine > 0 {
 				newOdds.Merge_Combine(extendedOdds)
-			} else if modifyFlags&Modify_CombineInPlace > 0 {
+			} else if addFlags&Add_CombineInPlace > 0 {
 				newOdds.Merge_CombineInPlace(extendedOdds)
 			} else {
 				newOdds.Merge(extendedOdds)
@@ -221,13 +221,12 @@ func (o *Odds[D, H]) ExtendOdds_Parallel(
 	}
 
 	// Fetch the completed odds and combine into o
-	o.Map = map[H]*Entry[D, H]{}
-	o.Total.Set(big.NewInt(0))
+	o.Clear()
 
 	mergeFunction := o.Merge
-	if modifyFlags&Modify_Combine > 0 {
+	if addFlags&Add_Combine > 0 {
 		mergeFunction = o.Merge_Combine
-	} else if modifyFlags&Modify_CombineInPlace > 0 {
+	} else if addFlags&Add_CombineInPlace > 0 {
 		mergeFunction = o.Merge_CombineInPlace
 	}
 

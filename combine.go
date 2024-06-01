@@ -94,7 +94,11 @@ For every combination in "o" and each odds in "objects", apply
 o.ConvolveFunction to get an array of new convolved entries to replace in "o"
 */
 func (o *Odds[D, H]) Convolve(objects ...*Odds[D, H]) *Odds[D, H] {
-	for _, entry := range o.Entries() {
+
+	refOdds := o.Copy()
+	o.Clear()
+
+	for _, entry := range refOdds.Entries() {
 		for _, objEntry := range objects[0].Entries() {
 
 			/*
@@ -114,16 +118,15 @@ func (o *Odds[D, H]) Convolve(objects ...*Odds[D, H]) *Odds[D, H] {
 			}
 
 			// New weight that all the newEntries have to fit in
-			newWeight := big.NewInt(0)
-			newWeight.Mul(entry.Weight, objEntry.Weight)
+			newBaseWeight := new(big.Int).Mul(entry.Weight, objEntry.Weight)
 
 			if total.Cmp(big.NewInt(1)) == 1 {
+				refOdds.Scale(total)
 				o.Scale(total)
 			}
 
-			o.RemoveEntry(entry)
 			for _, newEntry := range newEntryArray {
-				o.Add(newEntry.Data, newEntry.Weight.Mul(newEntry.Weight, newWeight))
+				o.Add(newEntry.Data, newEntry.Weight.Mul(newEntry.Weight, newBaseWeight))
 			}
 
 		}

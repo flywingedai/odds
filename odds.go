@@ -211,6 +211,23 @@ func (o *Odds[D, H]) WithHash(hashFunction func(D) H) *Odds[D, H] {
 	return o
 }
 
+func (o *Odds[D, H]) GetNewHashWeights(hashFunction func(D) H) (map[H]H, map[H]*big.Int) {
+	hashMap := map[H]H{}
+	hashWeights := map[H]*big.Int{}
+
+	for _, entry := range o.Map {
+		newHash := hashFunction(entry.Data)
+		hashMap[entry.Hash] = newHash
+		if existingWeight, exists := hashWeights[newHash]; exists {
+			existingWeight.Add(existingWeight, entry.Weight)
+		} else {
+			hashWeights[newHash] = new(big.Int).Set(entry.Weight)
+		}
+	}
+
+	return hashMap, hashWeights
+}
+
 /*
 Updates all the hashes of the object in place. Returns the odds object to
 facilitate chaining. Is useful to run after modifying data objects individually.
@@ -283,4 +300,65 @@ Specify the display function in the odds
 func (o *Odds[D, H]) WithDisplay(displayFunction func(D) string) *Odds[D, H] {
 	o.DisplayFunction = displayFunction
 	return o
+}
+
+/////////////
+// HELPERS //
+/////////////
+
+func (o *Odds[D, H]) Clear() *Odds[D, H] {
+	o.Map = map[H]*Entry[D, H]{}
+	o.Total.Set(big.NewInt(0))
+	return o
+}
+
+func (o *Odds[D, H]) GetExtreme(compareFunction func(*Entry[D, H], *Entry[D, H]) bool) *Entry[D, H] {
+	var mostExtreme *Entry[D, H]
+	for _, e := range o.Map {
+		if mostExtreme == nil || compareFunction(e, mostExtreme) {
+			mostExtreme = e
+		}
+	}
+	return mostExtreme
+}
+
+func (o *Odds[D, H]) WeightAsPercent(weight *big.Int) *big.Float {
+	totalFloat := new(big.Float).SetInt(o.Total)
+	percent := new(big.Float).Quo(new(big.Float).SetInt(weight), totalFloat)
+	return percent.Mul(percent, big.NewFloat(100))
+}
+
+func (o *Odds[D, H]) String() string {
+	return o.AsString(false, false)
+}
+
+func (o *Odds[D, H]) AsString(indent, percent bool) string {
+	indentString := " "
+	if indent {
+		indentString = "\n\t"
+	}
+
+	s := fmt.Sprintf("Odds[%T, %T] (%d|%s) {", *new(D), *new(H), len(o.Map), o.Total)
+	if indent {
+		s += indentString
+	}
+
+	for i, entry := range o.EntriesByWeight() {
+		weightString := entry.Weight.String()
+		if percent {
+			p := o.WeightAsPercent(entry.Weight)
+			weightString += p.String()
+		}
+		s += fmt.Sprintf("%s:%s", weightString, o.DisplayFunction(entry.Data))
+
+		if i != len(o.Map)-1 {
+			s += indentString
+		}
+	}
+
+	if indent {
+		s += "\n"
+	}
+
+	return s + "}"
 }

@@ -5,13 +5,13 @@ import (
 )
 
 // Types for merging, combining, and convolving
-type ModifyFlag int
+type OddsFlags int
 
 const (
-	Modify_Default ModifyFlag = 1 << iota
-	Modify_Combine
-	Modify_CombineInPlace
-	Modify_ConvolveInPlace
+	Add_Default OddsFlags = 1 << iota
+	Add_Combine
+	Add_CombineInPlace
+	Convolve_ConvolveInPlace
 )
 
 ///////////////
@@ -23,14 +23,15 @@ Add new data with a specified weight to the odds. This will not copy the
 data being passed in.
 */
 func (o *Odds[D, H]) Add(data D, weight *big.Int) {
-	entry := o.NewEntry(data, weight)
-	existingEntry := o.Map[entry.Hash]
+	hash := o.HashFunction(data)
+	existingEntry := o.Map[hash]
 	if existingEntry != nil {
-		existingEntry.Weight.Add(existingEntry.Weight, entry.Weight)
+		existingEntry.Weight.Add(existingEntry.Weight, weight)
 	} else {
+		entry := o.NewEntryWithHash(hash, data, weight)
 		o.Map[entry.Hash] = entry
 	}
-	o.Total.Add(o.Total, entry.Weight)
+	o.Total.Add(o.Total, weight)
 }
 
 /*
